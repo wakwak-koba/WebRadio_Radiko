@@ -8,7 +8,6 @@
 #include <AudioGeneratorAAC.h>
 #include <AudioFileSourceHTTPStream.h>
 #include "AudioFileSourceHLS.hpp"
-#include <Arduino_JSON.h>
 #include <base64.h>
 
 #include <functional>
@@ -328,7 +327,7 @@ class Radiko : public WebRadio {
             nextChunk = true;
 
         if(nextChunk) {
-          buffer.setSource(null);
+          buffer.setSource(nullptr);
           if(stream) {
             delete stream;
             stream = nullptr;
