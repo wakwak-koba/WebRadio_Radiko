@@ -31,8 +31,8 @@ SDカードを用いて WiFi の設定が行えます。
 
 ### AAC-SBR を無効にするためライブラリを Fork しました
  ESP8266Audio の AACDecorder を ESP32 で利用すると、必ず SBR が有効になってしまいますが、SBR を有効にすると Radiko の受信には最大で4チャネル必要で、メモリー不足により安定して動作しませんでした。  
- 元来は「HELIX_FEATURE_AUDIO_CODEC_AAC_SBR」という定数定義に基づいて SBR が有効になるべきだと思われるものの、ESP8266 以外で常に SBR が有効になる記述も別にあり、実質的には「HELIX_FEATURE_AUDIO_CODEC_AAC_SBR」が機能しない状態になっています。  
- 私としてはバグだと解釈しているのですが、AAC に関する知識も欠如しており Pull-Request を提出すべきか悩んでいる次第ではありますが、とりあえず Fork したうえで該当箇所を修正しましたので、ビルドされる方は私が Fork したほうをご利用ください。
+ 元来は「HELIX_FEATURE_AUDIO_CODEC_AAC_SBR」という定数定義に基づいて SBR が有効になるべきだと思われるものの、ESP8266 以外で常に SBR が有効になる記述も別にあり、実質的には「HELIX_FEATURE_AUDIO_CODEC_AAC_SBR」が機能しない状態になってしまっています。  
+ 私としてはバグだと解釈しているのですが、AAC に関する知識も欠如しており Pull-Request を提出すべきか悩んでおり、とりあえず Fork したうえで該当箇所を修正しましたので、ビルドされる方は私が Fork したほうをご利用ください。
 
 ### 宣伝
 M5Stack 等で JCBA インターネットサイマルラジオ 全132局 が聴ける [WebRadio_JCBA](https://github.com/wakwak-koba/WebRadio_Jcbasimul) も公開しています。
