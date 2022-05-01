@@ -2,23 +2,18 @@
 //#define WIFI_PASS "SET YOUR WIFI PASS"
 
 #include <math.h>
-
 #include <WiFi.h>
-/// need ESP8266Audio library. ( URL : https://github.com/earlephilhower/ESP8266Audio/ )
-
 #include <SD.h>
 #include <M5UnitLCD.h>
 #include <M5UnitOLED.h>
 #include <M5Unified.h>
 #include <nvs.h>
 
-#include "WebRadio_Radiko.hpp"
+#include "WebRadio_radiko.hpp"
 
 /// set M5Speaker virtual channel (0-7)
 static constexpr uint8_t m5spk_virtual_channel = 0;
 static constexpr uint8_t m5spk_task_pinned_core = PRO_CPU_NUM;
-
-const int preallocateBufferSize = 7*1024;
 
 class AudioOutputM5Speaker : public AudioOutput
 {
@@ -172,7 +167,7 @@ public:
 
 static constexpr size_t WAVE_SIZE = 320;
 static AudioOutputM5Speaker out(&M5.Speaker, m5spk_virtual_channel);
-static Radiko radiko(&out);
+static Radiko radio(&out, 1-m5spk_task_pinned_core);
 
 static fft_t fft;
 static bool fft_enabled = false;
@@ -183,7 +178,6 @@ static int16_t wave_y[WAVE_SIZE];
 static int16_t wave_h[WAVE_SIZE];
 static int16_t raw_data[WAVE_SIZE * 2];
 static int header_height = 0;
-static size_t station_index;
 static char stream_title[128] = { 0 };
 static const char* meta_text[2] = { nullptr, stream_title };
 static const size_t meta_text_num = sizeof(meta_text) / sizeof(meta_text[0]);
@@ -202,11 +196,6 @@ static void MDCallback(void *cbData, const char *type, bool isUnicode, const cha
 static void StCallback(void *cbData, int code, const char *string)
 {
   Serial.println(string);
-}
-
-static void play(size_t index)
-{
-  radiko.getStation(index)->play();
 }
 
 static uint32_t bgcolor(LGFX_Device* gfx, int y)
@@ -513,7 +502,7 @@ void setup(void)
   { /// custom setting
     auto spk_cfg = M5.Speaker.config();
     /// Increasing the sample_rate will improve the sound quality instead of increasing the CPU load.
-    spk_cfg.sample_rate = 96000; // default:64000 (64kHz)  e.g. 48000 , 50000 , 80000 , 96000 , 100000 , 128000 , 144000 , 192000 , 200000
+    spk_cfg.sample_rate = 144000; // default:64000 (64kHz)  e.g. 48000 , 50000 , 80000 , 96000 , 100000 , 128000 , 144000 , 192000 , 200000
     spk_cfg.task_pinned_core = m5spk_task_pinned_core;
     M5.Speaker.config(spk_cfg);
   }
@@ -559,6 +548,8 @@ void setup(void)
     M5.Display.print(".");
     delay(100);
   }
+  Serial.print("IP address:");
+  Serial.println(WiFi.localIP());  
   M5.Display.clear();
 
   gfxSetup(&M5.Display);
@@ -575,22 +566,21 @@ void setup(void)
 
 // radiko
 
-  radiko.onPlay = [](const char * station_name, const size_t station_idx) {
+  radio.onPlay = [](const char * station_name, const size_t station_idx) {
     Serial.printf("onPlay:%d %s\n", station_idx, station_name);
-    station_index = station_idx;
     meta_text[0] = station_name;
     stream_title[0] = 0;
     meta_mod_bits = 3;  
   };
-  radiko.onChunk = [](const char *text) {
+  radio.onChunk = [](const char *text) {
     Serial.println(text);
   };
-  radiko.RegisterStatusCB(StCallback, (void *)"radiko");
-  if(!radiko.begin(m5spk_task_pinned_core)) {
-    Serial.println("failed: radiko->begin()");
+  radio.RegisterStatusCB(StCallback, (void *)"radiko");
+  if(!radio.begin()) {
+    Serial.println("failed: radio.begin()");
     for(;;);
   } 
-  radiko.play();
+  radio.play();
 }
 
 void loop(void)
@@ -619,14 +609,12 @@ void loop(void)
     {
     case 1:
       M5.Speaker.tone(1000, 100);
-      if (++station_index >= radiko.getNumOfStations()) { station_index = 0; }
-      play(station_index);
+      radio.play(true);
       break;
 
     case 2:
       M5.Speaker.tone(800, 100);
-      if (--station_index < 0) { station_index = radiko.getNumOfStations() - 1; }
-      play(station_index);
+      radio.play(false);
       break;
     }
   }
@@ -661,7 +649,9 @@ void loop(void)
     static unsigned long long last_millis = 0;
     unsigned long long now_millis = millis();
     if(now_millis - last_millis > 1000) {
-      Serial.println(radiko.getInfoStack());
+      auto text = radio.getInfoStack();
+      if(text.length())
+        Serial.println(text);
       last_millis = now_millis;
     }
   }*/

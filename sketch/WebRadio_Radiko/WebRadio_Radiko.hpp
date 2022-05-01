@@ -10,9 +10,6 @@
 #include "AudioFileSourceHLS.hpp"
 #include <base64.h>
 
-#include <functional>
-#include <vector>
-
 #ifdef AAC_ENABLE_SBR
 #error "Please switch AAC_ENABLE_SBR from enabled to disabled"
 #endif
@@ -22,9 +19,6 @@
 static const char * secret_key = "bcd151073c03b352e1ef2fd66c32209da9ca0afa";
 static const char * headerKeys[] = {"x-radiko-authtoken", "x-radiko-keyoffset", "x-radiko-keylength"} ;
 static const size_t numberOfHeaders = sizeof(headerKeys) / sizeof(headerKeys[0]);
-
-static void voidDownloadTask(void *radiko);
-static void voidDecodeTask(void *radiko);
   
 static void getInner(const String & source, const String & tagF, const String & tagT, std::function<void(const String &)> action, bool removeTagF = false) {
   int idxF = 0;
@@ -43,31 +37,33 @@ static void getInner(const String & source, const String & tag, std::function<vo
 
 class Radiko : public WebRadio {
   public:
-    Radiko(AudioOutput * _out, const uint16_t buffSize = 6 * 1024) : buffer(buffSize), WebRadio(_out) {     
-      xTaskCreatePinnedToCore(&voidDownloadTask, "download", 2560, this, 0, &download_handle, APP_CPU_NUM);
-      xTaskCreatePinnedToCore(&voidDecodeTask  , "decode"  , 2048, this, 0, &decode_handle  , PRO_CPU_NUM); 
-    }
+    Radiko(AudioOutput * _out, int cpuDecode, const uint16_t buffSize = 6 * 1024) : buffer(buffSize), WebRadio(_out, cpuDecode, 2048, 1 - cpuDecode, 2560) {}
 
     ~Radiko() {
-      vTaskDelete(decode_handle);
-      vTaskDelete(download_handle);
-      deInit();
       if(decoder)
         delete decoder;
     }
-
+    
     class station_t : public WebRadio::Station {
-      private:
-        Radiko* radiko;
-      
       public:
         String id;
+        String name;
         String logo;
 //      String href;
 
-        station_t(Radiko* _radiko) : radiko(_radiko), Station(_radiko) {;}
+        station_t(Radiko* _radiko) : Station(_radiko) {;}
         ~station_t() {
           clearPlaylists();
+        }
+
+        virtual const char * getName() override { return name.c_str(); }
+        virtual bool play() override {
+          getRadiko()->play(this);
+          return true;
+        }
+
+        Radiko * getRadiko() {
+          return (Radiko *)radio;
         }
 
         struct playlist_t {
@@ -81,21 +77,27 @@ class Radiko : public WebRadio {
               clearChunks();
             }
 
-            void play() {
-              station->radiko->select_playlist = this;
+            bool play() {
+              getRadiko()->select_playlist = this;
+              return true;
             }
 
             station_t * getStation() {
               return station;
             }
+
+            Radiko * getRadiko() {
+              return getStation()->getRadiko();
+            }
             
             AudioGeneratorAAC * getDecoder() {
+              auto radiko = getRadiko();
               auto decoder = new AudioGeneratorAAC();
-              decoder->RegisterMetadataCB(station->radiko->fnCbMetadata, station->radiko->fnCbMetadata_data);
-              decoder->RegisterStatusCB(station->radiko->fnCbStatus, station->radiko->fnCbStatus_data);
+              decoder->RegisterMetadataCB(radiko->fnCbMetadata, radiko->fnCbMetadata_data);
+              decoder->RegisterStatusCB  (radiko->fnCbStatus  , radiko->fnCbStatus_data  );
               return decoder;
             }
-  
+            
             struct chunk_t {
               private:
                 playlist_t* playlist;
@@ -104,9 +106,10 @@ class Radiko : public WebRadio {
                 chunk_t(playlist_t* _playlist, const String & _url) : playlist(_playlist), url(_url) {;}
 
                 AudioFileSourceHTTPStream * getStream() {
+                  auto radiko = playlist->getRadiko();
                   auto stream = new AudioFileSourceHTTPStream();
-                  stream->RegisterMetadataCB(playlist->station->radiko->fnCbMetadata, playlist->station->radiko->fnCbMetadata_data);
-                  stream->RegisterStatusCB(playlist->station->radiko->fnCbStatus, playlist->station->radiko->fnCbStatus_data);                 
+                  stream->RegisterMetadataCB(radiko->fnCbMetadata, radiko->fnCbMetadata_data);
+                  stream->RegisterStatusCB  (radiko->fnCbStatus  , radiko->fnCbStatus_data  );
                   if(!stream->open(url.c_str())) {
                     delete stream;
                     stream = nullptr;
@@ -127,7 +130,7 @@ class Radiko : public WebRadio {
               clearChunks();
 
               if (http.begin(client, url)) {
-                http.addHeader("X-Radiko-AuthToken", station->radiko->token);
+                http.addHeader("X-Radiko-AuthToken", getRadiko()->token);
                 auto httpCode = http.GET();
                 if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY)
                   getInner(http.getString(), "http://", "\n", [this](const String & value) {
@@ -158,7 +161,7 @@ class Radiko : public WebRadio {
           char url[100];
           sprintf(url, "http://f-radiko.smartstream.ne.jp/%s/_definst_/simul-stream.stream/playlist.m3u8", id);
           if (http.begin(client, url)) {
-            http.addHeader("X-Radiko-AuthToken", radiko->token);
+            http.addHeader("X-Radiko-AuthToken", getRadiko()->token);
             auto httpCode = http.GET();
             if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY)
               getInner(http.getString(), "http://", "\n", [this](const String & value) {
@@ -180,11 +183,7 @@ class Radiko : public WebRadio {
         std::vector<playlist_t *> playlists;
     };
 
-    virtual bool begin(int cpuDownload) override {
-      return WebRadio::begin(cpuDownload);
-    }
-
-    virtual bool begin(int cpuDownload, int cpuDecode) override {
+    virtual bool begin() override {
       WiFiClientSecure clients;
       HTTPClient http;
       String partialkey;
@@ -261,42 +260,33 @@ class Radiko : public WebRadio {
       return true;
     }
 
-    std::vector<station_t *> * getStations() {
-      return &stations;
-    }
-    
-    virtual size_t getNumOfStations() override {
-      return stations.size();
-    }
-
-    virtual WebRadio::Station * getStation(size_t index) override {
-      if(index >= stations.size())
-        return nullptr;
-
-      return (WebRadio::Station *)stations[index];
-    }
-
-    void downloadTask() {
+    virtual void downloadTask() override {
       unsigned long long saveSettings = 0;
       int chunk_index;
-                  station_t::playlist_t             * playlist = nullptr;
       std::vector<station_t::playlist_t::chunk_t *> * chunks = nullptr;
       
       for(;;) {
         delay(10);
 
-        if(playlist != select_playlist) {
+        if(select_station || select_playlist) {
           stop();
           chunks = nullptr;
-          playlist = select_playlist;
+          current_station = select_station;
+          current_playlist = select_playlist;
+          if(!current_station && current_playlist)
+            current_station = current_playlist->getStation();
+          if(onPlay)
+            onPlay(current_station->getName(), getIndex(current_station));
           saveSettings = millis() + 10000;
+          select_station  = nullptr;
+          select_playlist = nullptr;
         }
 
-        if(playlist && !decoder)
-          decoder = playlist->getDecoder();
+        if(current_playlist && !decoder)
+          decoder = current_playlist->getDecoder();
 
-        if(playlist && !chunks) {
-          chunks = playlist->getChunks();
+        if(current_playlist && !chunks) {
+          chunks = current_playlist->getChunks();
           chunk_index = 0;
         }
 
@@ -336,13 +326,13 @@ class Radiko : public WebRadio {
         }           
         
         if (saveSettings > 0 && millis() > saveSettings) {
-          saveStation(playlist->getStation());
+          saveStation(current_station);
           saveSettings = 0;
         }
       }  
     }
 
-    void decodeTask() {     
+    virtual void decodeTask() override {
       for(;;) {
         delay(1);
         
@@ -357,7 +347,7 @@ class Radiko : public WebRadio {
           while(stopDecode) {delay(100);}
         }
         else if(!decoder) {
-          ; //decoder = new AudioGeneratorAAC();
+          ;
         } else if (!decoder->isRunning() && buffer.isFilled()) {
           if(!decoder->begin(&buffer, out))
             delay(1000);
@@ -368,7 +358,7 @@ class Radiko : public WebRadio {
       }
     }
 
-    void stop() {
+    virtual void stop() override {
       if(decoder) {
         stopDecode = 2;
         while(stopDecode == 2) {delay(100);}
@@ -402,23 +392,24 @@ class Radiko : public WebRadio {
         station = stations[0];
 
       if(station) {
-        if(onPlay) {
-          for(int i = 0; i < stations.size(); i++)
-            if(stations[i] == station)
-              onPlay(stations[i]->getName(), i);
-        }      
         auto playlists = ((station_t *)station)->getPlaylists();
         if(playlists->size() > 0)
           select_playlist = (*playlists)[0];
         else
-          select_playlist = nullptr;
+          select_station = (station_t *)station;
         return true;
       }
       return false;        
     }
 
+    virtual bool play(bool next) override {
+      auto sn = getNumOfStations();
+      return play(getStation((getIndex(current_station) + sn + (next ? 1 : -1)) % sn));
+    }
+
   public:
     std::function<void(const char * text)> onChunk = nullptr;
+    
   private:
     AudioFileSourceHLS buffer;
     AudioGeneratorAAC * decoder = nullptr;
@@ -426,9 +417,11 @@ class Radiko : public WebRadio {
 
     char *token = nullptr;
     char *area = nullptr;
-    std::vector<station_t *> stations;
 
+    station_t             * select_station  = nullptr;
     station_t::playlist_t * select_playlist = nullptr;
+    station_t             * current_station  = nullptr;
+    station_t::playlist_t * current_playlist = nullptr;
     
     bool nextChunk = false;
     byte stopDecode = 0;    // 2:request stop 1:accept request
@@ -440,9 +433,7 @@ class Radiko : public WebRadio {
     
   private:
     void deInit() {
-      for (auto itr : stations)
-        delete itr;
-      stations.clear();
+      WebRadio::deInit();
 
       if(area) {
         delete []area;
@@ -454,66 +445,51 @@ class Radiko : public WebRadio {
       }
     }
 
-    void saveStation(station_t * station) {
-      uint32_t nvs_handle;
-      if (!nvs_open("WebRadio", NVS_READWRITE, &nvs_handle)) {
-        char key[8 + strlen(area)];
-        sprintf(key, "radiko_%s", area);
-        nvs_set_str(nvs_handle, "radiko", station->id.c_str());
-        nvs_set_str(nvs_handle, key     , station->id.c_str());
-        nvs_close(nvs_handle);
-      }    
+    virtual void saveStationCore(uint32_t nvs_handle, WebRadio::Station * station) override {
+      char key[8 + strlen(area)];
+      sprintf(key, "radiko_%s", area);
+      nvs_set_str(nvs_handle, "radiko", ((station_t *)station)->id.c_str());
+      nvs_set_str(nvs_handle, key     , ((station_t *)station)->id.c_str());
     }
 
-    station_t * restoreStation() {
-      station_t * result = nullptr;
-      uint32_t nvs_handle;
-      if (!nvs_open("WebRadio", NVS_READONLY, &nvs_handle)) {
-        size_t length = 0;
-        char *value;
+    virtual WebRadio::Station * restoreStationCore(uint32_t nvs_handle) override {
+      WebRadio::Station * result = nullptr;
+      size_t length = 0;
+      char *value;
 
-        // 同一エリアの前回局
-        char key[8 + strlen(area)];   
-        sprintf(key, "radiko_%s", area);
-        nvs_get_str(nvs_handle, key, nullptr, &length);
-        if(length) {
-          value = new char[length];
-          nvs_get_str(nvs_handle, key, value  , &length);
-          for(auto itr : stations) {
-            if(itr->id.equals(value)) {
-              result = itr;
-              break;
-            }
+      // 同一エリアの前回局
+      char key[8 + strlen(area)];   
+      sprintf(key, "radiko_%s", area);
+      nvs_get_str(nvs_handle, key, nullptr, &length);
+      if(length) {
+        value = new char[length];
+        nvs_get_str(nvs_handle, key, value  , &length);
+        for(auto itr : stations) {
+          if(((station_t *)itr)->id.equals(value)) {
+            result = itr;
+            break;
           }
-          delete []value;
         }
-        
-        // 前回局が存在するか
-        length = 0;
-        nvs_get_str(nvs_handle, "radiko", nullptr, &length);
-        if(length) {
-          value = new char[length];
-          nvs_get_str(nvs_handle, "radiko", value  , &length);
-          for(auto itr : stations) {
-            if(itr->id.equals(value))
-            {
-              result = itr;
-              break;
-            }
+        delete []value;
+      }
+      
+      // 前回局が存在するか
+      length = 0;
+      nvs_get_str(nvs_handle, "radiko", nullptr, &length);
+      if(length) {
+        value = new char[length];
+        nvs_get_str(nvs_handle, "radiko", value  , &length);
+        for(auto itr : stations) {
+          if(((station_t *)itr)->id.equals(value))
+          {
+            result = itr;
+            break;
           }
-          delete []value;
-        }  
-        nvs_close(nvs_handle);
+        }
+        delete []value;
       }  
       return result;  
     }
 };
 
-static void voidDownloadTask(void *radiko) {
-  ((Radiko*)radiko)->downloadTask();
-}
-
-static void voidDecodeTask(void *radiko) {
-  ((Radiko*)radiko)->decodeTask();
-}
 #endif
