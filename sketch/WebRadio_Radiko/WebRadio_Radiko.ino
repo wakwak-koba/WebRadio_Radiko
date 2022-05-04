@@ -13,7 +13,7 @@
 
 /// set M5Speaker virtual channel (0-7)
 static constexpr uint8_t m5spk_virtual_channel = 0;
-static constexpr uint8_t m5spk_task_pinned_core = PRO_CPU_NUM;
+static constexpr uint8_t m5spk_task_pinned_core = APP_CPU_NUM;
 
 class AudioOutputM5Speaker : public AudioOutput
 {

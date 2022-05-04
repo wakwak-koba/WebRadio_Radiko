@@ -93,6 +93,18 @@ class WebRadio {
       return stations[index];
     }
     
+    virtual bool RegisterMetadataCB(AudioStatus::metadataCBFn fn, void *data) {
+      fnCbMetadata = fn;
+      fnCbMetadata_data = data;
+      return true;
+    }
+
+    virtual bool RegisterStatusCB(AudioStatus::statusCBFn fn, void *data) {
+      fnCbStatus = fn;
+      fnCbStatus_data = data;
+      return true;
+    }
+    
     String getInfoStack() {
       if(download_handle && decode_handle)
         return "Stack: Decode:" + String(uxTaskGetStackHighWaterMark(decode_handle)) + " Download:" + String(uxTaskGetStackHighWaterMark(download_handle));
@@ -110,6 +122,11 @@ class WebRadio {
     
     TaskHandle_t download_handle;
     TaskHandle_t decode_handle;
+    
+    AudioStatus::metadataCBFn fnCbMetadata = nullptr;
+    void *fnCbMetadata_data = nullptr;
+    AudioStatus::statusCBFn fnCbStatus = nullptr;
+    void *fnCbStatus_data = nullptr;
     
   private:
     static void voidDownloadTask(void *radio) {

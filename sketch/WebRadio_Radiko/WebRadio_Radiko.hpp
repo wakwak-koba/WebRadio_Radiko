@@ -373,15 +373,11 @@ class Radiko : public WebRadio {
       stopDecode = 0;
     }
     
-    bool RegisterMetadataCB(AudioStatus::metadataCBFn fn, void *data) {
-      fnCbMetadata = fn;
-      fnCbMetadata_data = data;
-      return buffer.RegisterMetadataCB(fn, data);
+    virtual bool RegisterMetadataCB(AudioStatus::metadataCBFn fn, void *data) override {
+      return WebRadio::RegisterMetadataCB(fn, data) && buffer.RegisterMetadataCB(fn, data);
     }
-    bool RegisterStatusCB(AudioStatus::statusCBFn fn, void *data) {
-      fnCbStatus = fn;
-      fnCbStatus_data = data;
-      return buffer.RegisterStatusCB(fn, data);
+    virtual bool RegisterStatusCB(AudioStatus::statusCBFn fn, void *data) override {
+      return WebRadio::RegisterStatusCB(fn, data) && buffer.RegisterStatusCB(fn, data);
     }
 
     virtual bool play(WebRadio::Station * station = nullptr) override {
