@@ -125,6 +125,10 @@ class SimpleRingBuffer {
       return result;
     }
 
+    String getInfo() {
+      return "Available:" + String(available()) + " Free:" + String(free()) + " WritePtr:" + String(writePtr) + " ReadPtr:" + String(readPtr) + " WriteSum:" + String(writeSum) + " readSum:" + String(readSum);
+    }
+
   private:
     T *buffer;
     uint16_t buffSize;

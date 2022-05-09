@@ -110,6 +110,10 @@ class AudioFileSourceHLS : public AudioFileSource {
       buffer.init();
     }
 
+    String getInfoBuffer() {
+      return "Buffer: " + buffer.getInfo();
+    }
+
     enum { STATUS_TOO_SLOW=10 };
 
   protected:

@@ -652,6 +652,9 @@ void loop(void)
       auto text = radio.getInfoStack();
       if(text.length())
         Serial.println(text);
+      text = radio.getInfoBuffer();
+      if(text.length())
+        Serial.println(text);        
       last_millis = now_millis;
     }
   }*/

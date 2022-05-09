@@ -403,6 +403,10 @@ class Radiko : public WebRadio {
       return play(getStation((getIndex(current_station) + sn + (next ? 1 : -1)) % sn));
     }
 
+    String getInfoBuffer() {
+      return buffer.getInfoBuffer();
+    }
+    
   public:
     std::function<void(const char * text)> onChunk = nullptr;
     
