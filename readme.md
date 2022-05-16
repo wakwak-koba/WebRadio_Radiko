@@ -29,6 +29,10 @@ SDカードを用いて WiFi の設定が行えます。
 - [m5stack/M5Unified](https://github.com/m5stack/M5Unified)
 - [wakwak-koba/ESP8266Audio](https://github.com/wakwak-koba/ESP8266Audio) forked from [earlephilhower/ESP8266Audio](https://github.com/earlephilhower/ESP8266Audio)
 
+### ビルド時の注意
+　PSRAM:Enabled にしてビルドすると、低速な PSRAM をバッファとして利用されうるコードが生成されてしまいます。  
+　PSRAM:Disabled でビルドされることを強く推奨します。
+
 ### AAC-SBR を無効にするためライブラリを Fork しました
  ESP8266Audio の AACDecorder を ESP32 で利用すると、必ず SBR が有効になってしまいますが、SBR を有効にすると Radiko の受信には最大で4チャネル必要で、メモリー不足により安定して動作しませんでした。  
  元来は「HELIX_FEATURE_AUDIO_CODEC_AAC_SBR」という定数定義に基づいて SBR が有効になるべきだと思われるものの、ESP8266 以外で常に SBR が有効になる記述も別にあり、実質的には「HELIX_FEATURE_AUDIO_CODEC_AAC_SBR」が機能しない状態になってしまっています。  
