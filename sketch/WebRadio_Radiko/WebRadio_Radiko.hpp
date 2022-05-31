@@ -287,6 +287,8 @@ class Radiko : public WebRadio {
 
         if(current_playlist && !chunks) {
           chunks = current_playlist->getChunks();
+          if(chunks == nullptr)
+            select_playlist = current_playlist;
           chunk_index = 0;
         }
 
