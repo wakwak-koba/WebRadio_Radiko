@@ -31,7 +31,35 @@ static void getInner(const String & source, const String & tagF, const String & 
   }
 }
 
+static void getInner(Stream * source, const String & tagF, const String & tagT, std::function<void(const String &)> action, bool removeTagF = false) {
+  for(;;) {
+    if(!source->find(tagF.c_str()))
+      break;
+
+    String value;
+    if(!removeTagF)
+      value = tagF;
+      
+    for(;;) {
+      auto c = source->read();
+      if(c < 0) {
+        action(value);
+        return;
+      }
+      value.concat((char)c);
+      if(value.endsWith(tagT)) {
+        action(value.substring(0, value.length() - tagT.length()));
+        break;
+      }
+    }
+  }
+}
+
 static void getInner(const String & source, const String & tag, std::function<void(const String &)> action) {
+  getInner(source, "<" + tag + ">", "</" + tag + ">", action, true);
+}
+
+static void getInner(Stream * source, const String & tag, std::function<void(const String &)> action) {
   getInner(source, "<" + tag + ">", "</" + tag + ">", action, true);
 }
 
@@ -171,7 +199,34 @@ class Radiko : public WebRadio {
           }
           return &playlists;
         }
+        
+        String getProgram() {
+          String title;
+          WiFiClient client;
+          HTTPClient http;
+          
+          char url[40 + strlen(getRadiko()->area)];
+          sprintf(url, "http://radiko.jp/v3/program/now/%s.xml", getRadiko()->area);
+          if (http.begin(client, url)) {
+            auto httpCode = http.GET();
+            if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
+              auto stream = http.getStreamPtr();
+              stream->setTimeout(5000);
+              String tagF = String("<station id=\"") + (String)id + String("\">");
+/*            getInner(stream, tagF, "</station>", [&title](const String & value) {
+                getInner(value, "title", [&title](const String & value) { if(title.length() == 0) title = value; });
+              }, true);*/
+              if(stream->find(tagF.c_str()) && stream->find("<title>"))
+                title = stream->readStringUntil('<');
+            }
+            http.end();
+          }
+          return title;
+        }
 
+        String toString() {
+          return (String)(getRadiko()->area) + "/" + id + "/" + name;
+        }
       private:
           void clearPlaylists() {
             for (auto itr : playlists)
@@ -289,6 +344,9 @@ class Radiko : public WebRadio {
           chunks = current_playlist->getChunks();
           if(chunks == nullptr)
             select_playlist = current_playlist;
+          else if(onProgram)
+            onProgram(current_station->getProgram().c_str());
+            
           chunk_index = 0;
         }
 
@@ -300,9 +358,9 @@ class Radiko : public WebRadio {
             chunk_index++;
             
             if(onChunk) {
-              auto bufs = chunk->toString().c_str();
-              char text[7 + strlen(bufs)];
-              sprintf(text, "%2d/%2d %s", chunk_index, chunks->size(), chunk->toString().c_str());
+              auto chunkText = chunk->toString();
+              char text[7 + chunkText.length()];
+              sprintf(text, "%2d/%2d %s", chunk_index, chunks->size(), chunkText.c_str());
               onChunk(text);
             }
             stream = chunk->getStream();
@@ -335,8 +393,11 @@ class Radiko : public WebRadio {
     }
 
     virtual void decodeTask() override {
+      auto last_loop = millis();
+      
       for(;;) {
         delay(1);
+        auto now_millis = millis();
         
         if(stopDecode > 0) {
           if(decoder) {
@@ -350,12 +411,28 @@ class Radiko : public WebRadio {
         }
         else if(!decoder) {
           ;
-        } else if (!decoder->isRunning() && buffer.isFilled()) {
-          if(!decoder->begin(&buffer, out))
+        } else if (!decoder->isRunning()) {
+          if(buffer.isFilled() && !decoder->begin(&buffer, out)) {
             delay(1000);
-        } else if (decoder->isRunning() && buffer.getSize() >= 2*1024 && !decoder->loop()) {
-          decoder->stop();
-          nextChunk = true;
+            last_loop = now_millis;
+          } else if (now_millis - last_loop > 10000) {
+              decoder->stop();
+              nextChunk = true;
+          }
+        } else if (decoder->isRunning()) {
+          if(buffer.getSize() >= 2*1024) {
+            if(decoder->loop())
+              last_loop = now_millis;
+            else {
+              decoder->stop();
+              nextChunk = true;
+            }
+          } else if (now_millis - last_loop > 5000) {
+            if(onError)
+              onError("Streaming reception time out");
+            decoder->stop();
+            nextChunk = true;
+          }
         }
       }
     }

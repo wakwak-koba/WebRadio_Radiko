@@ -115,6 +115,8 @@ class WebRadio {
     }
 
     std::function<void(const char *station_name, const size_t station_index)> onPlay = nullptr;
+    std::function<void(const char *message)> onError = nullptr;
+    std::function<void(const char *program_title)> onProgram = nullptr;
 
   protected:
     AudioOutput * out = nullptr;

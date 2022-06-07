@@ -570,7 +570,15 @@ void setup(void)
     Serial.printf("onPlay:%d %s\n", station_idx, station_name);
     meta_text[0] = station_name;
     stream_title[0] = 0;
-    meta_mod_bits = 3;  
+    meta_mod_bits = 3;
+  };
+  radio.onError = [](const char * text) {
+    Serial.println(text);
+    ESP.restart();
+  };
+  radio.onProgram = [](const char * program_title) {
+    strcpy(stream_title, program_title);
+    meta_mod_bits |= 2;
   };
   radio.onChunk = [](const char *text) {
     Serial.println(text);
