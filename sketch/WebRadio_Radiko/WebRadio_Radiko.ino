@@ -1,5 +1,7 @@
 //#define WIFI_SSID "SET YOUR WIFI SSID"
 //#define WIFI_PASS "SET YOUR WIFI PASS"
+//#define RADIKO_USER "SET YOUR MAIL-ADDRESS"
+//#define RADIKO_PASS "SET YOUR PREMIUM PASS"
 
 #include <math.h>
 #include <WiFi.h>
@@ -10,6 +12,8 @@
 #include <nvs.h>
 
 #include "WebRadio_radiko.hpp"
+
+static constexpr uint8_t select_pref = 0;
 
 /// set M5Speaker virtual channel (0-7)
 static constexpr uint8_t m5spk_virtual_channel = 0;
@@ -498,6 +502,15 @@ void setup(void)
 //cfg.external_spk_detail.omit_spk_hat    = true; // exclude SPK HAT
 
   M5.begin(cfg);
+  M5.update();
+  if(M5.BtnA.isPressed() && M5.BtnB.isPressed() && M5.BtnC.isPressed()) {
+    uint32_t nvs_handle;
+    if(ESP_OK == nvs_open("WebRadio", NVS_READWRITE, &nvs_handle)) {
+      M5.Display.println("nvs_flash_ersce");
+      nvs_erase_all(nvs_handle);
+      delay(3000);
+    }
+  }
 
   { /// custom setting
     auto spk_cfg = M5.Speaker.config();
@@ -510,18 +523,23 @@ void setup(void)
 
   M5.Speaker.begin();
 
-  M5.Display.println("Connecting to WiFi");
   WiFi.disconnect();
   WiFi.softAPdisconnect(true);
   WiFi.mode(WIFI_STA);
 
-#if defined ( WIFI_SSID ) &&  defined ( WIFI_PASS )
+#if defined ( WIFI_SSID ) && defined ( WIFI_PASS )
   WiFi.begin(WIFI_SSID, WIFI_PASS);
-#else
+#endif
+
+#if defined( RADIKO_USER ) && defined( RADIKO_PASS )
+  radio.setAuthorization(RADIKO_USER, RADIKO_PASS);
+#endif
+
   WiFi.begin();
 
-  /// wifi settings
+  /// settings
   if (SD.begin(GPIO_NUM_4, SPI, 25000000)) {
+    /// wifi
     auto fs = SD.open("/wifi.txt", FILE_READ);
     if(fs) {
       size_t sz = fs.size();
@@ -539,11 +557,59 @@ void setup(void)
       }
       WiFi.begin(buf, &buf[y]);
     }
+
+    uint32_t nvs_handle;
+    if (ESP_OK == nvs_open("WebRadio", NVS_READWRITE, &nvs_handle)) {
+      /// radiko-premium
+      fs = SD.open("/radiko.txt", FILE_READ);
+      if(fs) {
+        size_t sz = fs.size();
+        char buf[sz + 1];
+        fs.read((uint8_t*)buf, sz);
+        buf[sz] = 0;
+        fs.close();
+  
+        int y = 0;
+        for(int x = 0; x < sz; x++) {
+          if(buf[x] == 0x0a || buf[x] == 0x0d)
+            buf[x] = 0;
+          else if (!y && x > 0 && !buf[x - 1] && buf[x])
+            y = x;
+        }
+
+        nvs_set_str(nvs_handle, "radiko_user", buf);
+        nvs_set_str(nvs_handle, "radiko_pass", &buf[y]);
+      }
+      
+      nvs_close(nvs_handle);
+    }
     SD.end();
   }
-#endif
+
+  {
+    uint32_t nvs_handle;
+    if (ESP_OK == nvs_open("WebRadio", NVS_READONLY, &nvs_handle)) {
+      size_t volume;
+      nvs_get_u32(nvs_handle, "volume", &volume);
+      M5.Speaker.setChannelVolume(m5spk_virtual_channel, volume);
+
+      size_t length1;
+      size_t length2;
+      if(ESP_OK == nvs_get_str(nvs_handle, "radiko_user", nullptr, &length1) && ESP_OK == nvs_get_str(nvs_handle, "radiko_pass", nullptr, &length2) && length1 && length2) {
+        char user[length1 + 1];
+        char pass[length2 + 1];
+        if(ESP_OK == nvs_get_str(nvs_handle, "radiko_user", user, &length1) && ESP_OK == nvs_get_str(nvs_handle, "radiko_pass", pass, &length2)) {
+          M5.Display.print("premium member: ");
+          M5.Display.println(user);
+          radio.setAuthorization(user, pass);
+        }
+      }
+      nvs_close(nvs_handle);
+    }
+  }
 
   // Try forever
+  M5.Display.println("Connecting to WiFi");
   while (WiFi.status() != WL_CONNECTED) {
     M5.Display.print(".");
     delay(100);
@@ -554,27 +620,18 @@ void setup(void)
 
   gfxSetup(&M5.Display);
 
-  {
-    uint32_t nvs_handle;
-    if (!nvs_open("WebRadio", NVS_READONLY, &nvs_handle)) {
-      size_t volume;
-      nvs_get_u32(nvs_handle, "volume", &volume);
-      nvs_close(nvs_handle);
-      M5.Speaker.setChannelVolume(m5spk_virtual_channel, volume);
-    }    
-  }
-
 // radiko
-
+  radio.setLocation(select_pref);
   radio.onPlay = [](const char * station_name, const size_t station_idx) {
-    Serial.printf("onPlay:%d %s\n", station_idx, station_name);
+    Serial.printf("onPlay:%d %s", station_idx, station_name);
+    Serial.println();
     meta_text[0] = station_name;
     stream_title[0] = 0;
     meta_mod_bits = 3;
   };
   radio.onError = [](const char * text) {
     Serial.println(text);
-    ESP.restart();
+//  ESP.restart();
   };
   radio.onProgram = [](const char * program_title) {
     strcpy(stream_title, program_title);
@@ -645,7 +702,7 @@ void loop(void)
   if (saveSettings > 0 && millis() > saveSettings)
   {
     uint32_t nvs_handle;
-    if (!nvs_open("WebRadio", NVS_READWRITE, &nvs_handle)) {
+    if (ESP_OK == nvs_open("WebRadio", NVS_READWRITE, &nvs_handle)) {
       size_t volume = M5.Speaker.getChannelVolume(m5spk_virtual_channel);
       nvs_set_u32(nvs_handle, "volume", volume);
       nvs_close(nvs_handle);
@@ -662,7 +719,7 @@ void loop(void)
         Serial.println(text);
       text = radio.getInfoBuffer();
       if(text.length())
-        Serial.println(text);        
+        Serial.println(text);
       last_millis = now_millis;
     }
   }*/
