@@ -35,7 +35,7 @@ Aボタン・Bボタン・Cボタンの3つを押しながら電源ON（もし�
 |Cボタン|音量・増|
 
 ### ビルドに必要なライブラリ
-- [espressif/arduino-esp32](https://github.com/espressif/arduino-esp32/releases/tag/2.0.2)
+- [espressif/arduino-esp32](https://github.com/espressif/arduino-esp32)
 - [m5stack/M5GFX](https://github.com/m5stack/M5GFX)
 - [m5stack/M5Unified](https://github.com/m5stack/M5Unified)
 - [wakwak-koba/ESP8266Audio](https://github.com/wakwak-koba/ESP8266Audio) forked from [earlephilhower/ESP8266Audio](https://github.com/earlephilhower/ESP8266Audio)
