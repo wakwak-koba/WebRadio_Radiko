@@ -508,7 +508,7 @@ class Radiko : public WebRadio {
         if(select_station || select_playlist) {
           stop();
           if(current_station)
-            delete current_station;
+            current_station = nullptr;
             
           chunks = nullptr;
           current_station = select_station;
